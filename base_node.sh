@@ -1,8 +1,5 @@
 #!/bin/bash
-# install_base_node.sh
-# Скрипт для установки ноды Base с выбором различных вариантов установки
 
-# Функция для установки Docker и Docker Compose
 install_docker() {
     echo "Обновление пакетов и установка Docker и Docker Compose..."
     sudo apt update
@@ -11,7 +8,6 @@ install_docker() {
     echo "Docker и Docker Compose успешно установлены."
 }
 
-# Функция для установки зависимостей для сборки ноды
 install_build_dependencies() {
     echo "Установка необходимых зависимостей для сборки ноды..."
     sudo apt update
@@ -19,7 +15,6 @@ install_build_dependencies() {
     echo "Зависимости успешно установлены."
 }
 
-# Функция для клонирования репозитория Base
 clone_repository() {
     if [ -d "base" ]; then
         echo "Каталог 'base' уже существует. Пропускаем клонирование."
@@ -29,7 +24,6 @@ clone_repository() {
     fi
 }
 
-# Функция для сборки ноды из исходников
 build_from_source() {
     if [ ! -d "base" ]; then
         echo "Каталог 'base' не найден. Сначала выполните клонирование репозитория."
@@ -42,7 +36,6 @@ build_from_source() {
     cd ..
 }
 
-# Функция для запуска ноды через Docker (предполагается наличие docker-compose.yml)
 run_docker() {
     echo "Запуск ноды через Docker Compose..."
     if [ -f "docker-compose.yml" ]; then
@@ -53,7 +46,6 @@ run_docker() {
     fi
 }
 
-# Функция для запуска ноды из собранного бинарного файла
 run_node() {
     if [ ! -d "base" ]; then
         echo "Каталог 'base' не найден. Сначала выполните клонирование репозитория и сборку."
@@ -69,7 +61,6 @@ run_node() {
     cd ..
 }
 
-# Главное меню
 while true; do
     echo "-----------------------------------------"
     echo "Меню установки ноды Base"

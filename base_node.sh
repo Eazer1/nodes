@@ -30,29 +30,32 @@ fix_docker_compose() {
 }
 
 install_node() {
-    echo "Введите значение OP_NODE_L1_ETH_RPC: "
-    read OP_NODE_L1_ETH_RPC
-    echo "Введите значение OP_NODE_L1_BEACON: "
-    read OP_NODE_L1_BEACON
-
     echo "Клонирование репозитория..."
     git clone $REPO_URL $NODE_DIR || { echo "Ошибка клонирования"; exit 1; }
     cd $NODE_DIR || exit
     
-    echo "Проверка наличия .env файла..."
-    cat > .env.mainnet <<EOL
-# Укажите нужные переменные окружения
-EXECUTION_ENGINE_ENDPOINT="http://127.0.0.1:8551"
-JWT_SECRET_PATH="/path/to/jwt.hex"
-OP_NODE_L1_ETH_RPC="$OP_NODE_L1_ETH_RPC"
-OP_NODE_L1_BEACON="$OP_NODE_L1_BEACON"
-EOL
-    
-    fix_docker_compose
-    
     echo "Сборка ноды..."
     docker-compose up -d || { echo "Ошибка запуска Docker Compose"; exit 1; }
     echo "Нода установлена и запущена!"
+
+    update_rpc_settings
+}
+
+update_rpc_settings() {
+    if [ ! -f "$NODE_DIR/.env.mainnet" ]; then
+        echo "Файл .env.mainnet отсутствует!"
+        return
+    fi
+    echo "Введите новое значение OP_NODE_L1_ETH_RPC: "
+    read OP_NODE_L1_ETH_RPC
+    echo "Введите новое значение OP_NODE_L1_BEACON: "
+    read OP_NODE_L1_BEACON
+    
+    sed -i "s|^OP_NODE_L1_ETH_RPC=.*|OP_NODE_L1_ETH_RPC=\"$OP_NODE_L1_ETH_RPC\"|" "$NODE_DIR/.env.mainnet"
+    sed -i "s|^OP_NODE_L1_BEACON=.*|OP_NODE_L1_BEACON=\"$OP_NODE_L1_BEACON\"|" "$NODE_DIR/.env.mainnet"
+    echo "Параметры RPC обновлены!"
+    
+    restart_node
 }
 
 view_logs() {
@@ -108,8 +111,9 @@ while true; do
     echo "4. Посмотреть логи ноды"
     echo "5. Проверить статус синхронизации"
     echo "6. Перезапустить ноду"
-    echo "7. Удалить ноду"
-    echo "8. Выход"
+    echo "7. Обновить параметры RPC (OP_NODE_L1_ETH_RPC и OP_NODE_L1_BEACON)"
+    echo "8. Удалить ноду"
+    echo "9. Выход"
     read -p "Выберите действие: " choice
 
     case $choice in
@@ -119,8 +123,9 @@ while true; do
         4) view_logs ;;
         5) sync_node ;;
         6) restart_node ;;
-        7) delete_node ;;
-        8) echo "Выход..."; exit 0 ;;
+        7) update_rpc_settings ;;
+        8) delete_node ;;
+        9) echo "Выход..."; exit 0 ;;
         *) echo "Неверный выбор!" ;;
     esac
 

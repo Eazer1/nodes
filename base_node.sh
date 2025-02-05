@@ -1,208 +1,127 @@
 #!/bin/bash
-# base_node.sh
-# Скрипт для установки и управления нодой Base с текстовым меню
 
-# Функция для установки Docker и Docker Compose
-install_docker() {
-    echo "Обновление пакетов и установка Docker и Docker Compose..."
-    sudo apt update
-    sudo apt install -y docker.io docker-compose
+export LC_ALL=C.UTF-8
+export LANG=C.UTF-8
+
+REPO_URL="https://github.com/base-org/node"
+NODE_DIR="$HOME/base-node"
+DOCKER_COMPOSE_FILE="$NODE_DIR/docker-compose.yml"
+
+download_latest_snapshot() {
+    echo "Загрузка последнего снепшота Base ноды..."
+    wget https://mainnet-reth-archive-snapshots.base.org/$(curl -s https://mainnet-reth-archive-snapshots.base.org/latest)
+    echo "Снепшот загружен!"
+}
+
+prepare_server() {
+    echo "Обновление системы и установка необходимых пакетов..."
+    sudo apt update && sudo apt upgrade -y
+    sudo apt install -y docker.io docker-compose git jq
     sudo systemctl enable --now docker
-    echo "Docker и Docker Compose успешно установлены."
+    echo "Сервер подготовлен!"
 }
 
-# Функция для установки зависимостей для сборки ноды
-install_build_dependencies() {
-    echo "Установка необходимых зависимостей для сборки ноды..."
-    sudo apt update
-    sudo apt install -y git build-essential curl
-    echo "Зависимости успешно установлены."
-}
-
-# Функция для клонирования репозитория Base
-clone_repository() {
-    if [ -d "base" ]; then
-        echo "Каталог 'base' уже существует. Пропускаем клонирование."
-    else
-        echo "Клонирование репозитория Base..."
-        git clone https://github.com/base-org/base.git
+fix_docker_compose() {
+    echo "Проверка и исправление docker-compose.yml..."
+    if grep -q "env_file:" "$DOCKER_COMPOSE_FILE"; then
+        sed -i 's|env_file:.*|env_file: "\.env\.mainnet"|' "$DOCKER_COMPOSE_FILE"
+        echo "Выбран mainnet в docker-compose.yml"
     fi
 }
 
-# Функция для сборки ноды из исходников
-build_from_source() {
-    if [ ! -d "base" ]; then
-        echo "Каталог 'base' не найден. Сначала выполните клонирование репозитория."
-        return
-    fi
-    cd base || exit
-    echo "Запуск сборки ноды (make build)..."
-    make build
-    echo "Сборка завершена."
-    cd ..
+install_node() {
+    echo "Введите значение OP_NODE_L1_ETH_RPC: "
+    read OP_NODE_L1_ETH_RPC
+    echo "Введите значение OP_NODE_L1_BEACON: "
+    read OP_NODE_L1_BEACON
+
+    echo "Клонирование репозитория..."
+    git clone $REPO_URL $NODE_DIR || { echo "Ошибка клонирования"; exit 1; }
+    cd $NODE_DIR || exit
+    
+    echo "Проверка наличия .env файла..."
+    cat > .env.mainnet <<EOL
+# Укажите нужные переменные окружения
+EXECUTION_ENGINE_ENDPOINT="http://127.0.0.1:8551"
+JWT_SECRET_PATH="/path/to/jwt.hex"
+OP_NODE_L1_ETH_RPC="$OP_NODE_L1_ETH_RPC"
+OP_NODE_L1_BEACON="$OP_NODE_L1_BEACON"
+EOL
+    
+    fix_docker_compose
+    
+    echo "Сборка ноды..."
+    docker-compose up -d || { echo "Ошибка запуска Docker Compose"; exit 1; }
+    echo "Нода установлена и запущена!"
 }
 
-# Функция для запуска ноды через Docker Compose
-run_docker() {
-    echo "Запуск ноды через Docker Compose..."
-    if [ -f "docker-compose.yml" ]; then
-        docker-compose up -d
-    else
-        echo "Файл docker-compose.yml не найден в текущем каталоге."
-        echo "Убедитесь, что вы находитесь в каталоге с файлом или используйте другой вариант запуска."
-    fi
-}
-
-# Функция для запуска ноды из собранного бинарного файла
-run_node() {
-    if [ ! -d "base" ]; then
-        echo "Каталог 'base' не найден. Сначала выполните клонирование репозитория и сборку."
-        return
-    fi
-    cd base || exit
-    if [ -f "./base-node" ]; then
-        echo "Запуск ноды с использованием конфигурационного файла config/config.toml..."
-        ./base-node --config config/config.toml
-    else
-        echo "Исполняемый файл 'base-node' не найден. Сначала выполните сборку ноды."
-    fi
-    cd ..
-}
-
-# Функция для просмотра логов
 view_logs() {
-    echo "Попытка просмотреть логи ноды Base."
-    # Если нода запущена через Docker
-    if docker ps | grep -q "base-node"; then
-        echo "Просмотр логов Docker контейнера 'base-node'. Нажмите Ctrl+C для выхода."
-        docker logs -f base-node
-    else
-        # Если запущена как бинарный процесс и логи записываются в файл (пример: base/logs/base.log)
-        if [ -f "base/logs/base.log" ]; then
-            echo "Просмотр логов из файла base/logs/base.log. Нажмите Ctrl+C для выхода."
-            tail -f base/logs/base.log
-        else
-            echo "Логи не найдены. Убедитесь, что нода запущена и логи доступны."
-        fi
-    fi
+    echo "Открытие логов ноды..."
+    cd $NODE_DIR || exit
+    docker-compose logs -f
 }
 
-# Функция для запуска синхронизации (пересинхронизации) ноды
-start_sync() {
-    echo "Начало процесса синхронизации ноды Base."
-    echo "ВНИМАНИЕ: Эта операция удалит локальные данные ноды и перезапустит её."
-    read -rp "Вы уверены, что хотите продолжить? (y/N): " confirm_sync
-    if [[ ! "$confirm_sync" =~ ^[Yy]$ ]]; then
-        echo "Операция отменена."
+sync_node() {
+    echo "Проверка статуса синхронизации..."
+    command -v jq &> /dev/null || { echo "jq is not installed" 1>&2; return; }
+    
+    RESPONSE=$(curl -s -d '{"id":0,"jsonrpc":"2.0","method":"optimism_syncStatus"}' \
+        -H "Content-Type: application/json" http://localhost:7545)
+    
+    TIMESTAMP=$(echo "$RESPONSE" | jq -r .result.unsafe_l2.timestamp)
+    
+    if ! [[ "$TIMESTAMP" =~ ^[0-9]+$ ]]; then
+        echo "Ошибка: получены некорректные данные. Проверьте, работает ли нода и RPC."
         return
     fi
-
-    # Если используется Docker
-    if docker ps -a | grep -q "base-node"; then
-        echo "Останавливаем Docker контейнер 'base-node'..."
-        docker stop base-node
-        echo "Для пересинхронизации необходимо удалить данные ноды."
-        read -rp "Введите путь к каталогу данных, который нужно очистить (например, /path/to/data): " data_path
-        if [ -d "$data_path" ]; then
-            rm -rf "$data_path"/*
-            echo "Данные удалены."
-        else
-            echo "Каталог данных не найден. Пропускаем удаление."
-        fi
-        echo "Перезапуск Docker контейнера 'base-node'..."
-        docker start base-node
-    else
-        # Если нода запущена как бинарный процесс
-        echo "Если нода запущена как бинарный процесс, убедитесь, что она остановлена."
-        if [ -d "base/data" ]; then
-            rm -rf base/data/*
-            echo "Данные ноды удалены."
-        else
-            echo "Каталог данных не найден. Пропускаем удаление."
-        fi
-        echo "Запуск ноды для синхронизации..."
-        cd base || exit
-        ./base-node --config config/config.toml
-        cd ..
-    fi
+    
+    LATEST_SYNCED=$((($(date +%s) - TIMESTAMP) / 60))
+    echo "Последний синхронизированный блок отстает на: $LATEST_SYNCED минут"
 }
 
-# Функция для удаления ноды (все файлы, Docker-контейнер и исходный код)
+restart_node() {
+    echo "Перезапуск ноды..."
+    cd $NODE_DIR || exit
+    docker-compose down && docker-compose up -d
+    echo "Нода перезапущена!"
+}
+
 delete_node() {
-    echo "Внимание! Эта операция удалит ноду Base и все связанные файлы."
-    read -rp "Вы уверены, что хотите продолжить? Это действие нельзя отменить! (y/N): " confirm_delete
-    if [[ "$confirm_delete" =~ ^[Yy]$ ]]; then
-        # Если используется Docker, остановить и удалить контейнер
-        if docker ps -a | grep -q "base-node"; then
-            echo "Останавливаем и удаляем Docker контейнер 'base-node'..."
-            docker stop base-node
-            docker rm base-node
-        fi
-        # Удаляем каталог с исходным кодом и данными
-        if [ -d "base" ]; then
-            rm -rf base
-            echo "Каталог 'base' удалён."
-        else
-            echo "Каталог 'base' не найден."
-        fi
-        echo "Операция удаления завершена."
+    read -p "Для подтверждения удаления введите 'delete': " confirm
+    if [[ "$confirm" == "delete" ]]; then
+        echo "Удаление ноды..."
+        cd $NODE_DIR || exit
+        docker-compose down
+        cd $HOME
+        rm -rf $NODE_DIR
+        echo "Нода удалена полностью!"
     else
-        echo "Операция отменена."
+        echo "Удаление отменено."
     fi
 }
 
-# Главное меню
 while true; do
-    echo "-----------------------------------------"
-    echo "Меню управления нодой Base"
-    echo "1. Установить Docker и Docker Compose"
-    echo "2. Установить зависимости для сборки"
-    echo "3. Клонировать репозиторий Base"
-    echo "4. Собрать ноду из исходников"
-    echo "5. Запустить ноду через Docker Compose"
-    echo "6. Запустить ноду из собранного бинарника"
-    echo "7. Просмотреть логи ноды"
-    echo "8. Начать синхронизацию (пересинхронизацию) ноды"
-    echo "9. Удалить ноду (со всеми её файлами)"
-    echo "0. Выход"
-    echo "-----------------------------------------"
-    read -rp "Выберите опцию: " choice
+    echo -e "\nМеню управления нодой Base Mainnet:"
+    echo "1. Подготовить сервер"
+    echo "2. Установить ноду"
+    echo "3. Скачать последний снепшот ноды"
+    echo "4. Посмотреть логи ноды"
+    echo "5. Проверить статус синхронизации"
+    echo "6. Перезапустить ноду"
+    echo "7. Удалить ноду"
+    echo "8. Выход"
+    read -p "Выберите действие: " choice
 
     case $choice in
-        1)
-            install_docker
-            ;;
-        2)
-            install_build_dependencies
-            ;;
-        3)
-            clone_repository
-            ;;
-        4)
-            build_from_source
-            ;;
-        5)
-            run_docker
-            ;;
-        6)
-            run_node
-            ;;
-        7)
-            view_logs
-            ;;
-        8)
-            start_sync
-            ;;
-        9)
-            delete_node
-            ;;
-        0)
-            echo "Выход из программы..."
-            exit 0
-            ;;
-        *)
-            echo "Неверный выбор! Пожалуйста, введите корректный номер опции."
-            ;;
+        1) prepare_server ;;
+        2) install_node ;;
+        3) download_latest_snapshot ;;
+        4) view_logs ;;
+        5) sync_node ;;
+        6) restart_node ;;
+        7) delete_node ;;
+        8) echo "Выход..."; exit 0 ;;
+        *) echo "Неверный выбор!" ;;
     esac
-    echo ""
+
 done

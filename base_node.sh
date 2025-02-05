@@ -24,8 +24,8 @@ prepare_server() {
 fix_docker_compose() {
     echo "Проверка и исправление docker-compose.yml..."
     if grep -q "env_file:" "$DOCKER_COMPOSE_FILE"; then
-        sed -i 's|env_file:.*|env_file: "\.env\.mainnet"|' "$DOCKER_COMPOSE_FILE"
-        echo "Выбран mainnet в docker-compose.yml"
+        sed -i 's|#[ ]*- .env.mainnet|      - .env.mainnet|' "$DOCKER_COMPOSE_FILE"
+        echo "Убраны комментарии перед .env.mainnet в docker-compose.yml"
     fi
 }
 
@@ -33,6 +33,8 @@ install_node() {
     echo "Клонирование репозитория..."
     git clone $REPO_URL $NODE_DIR || { echo "Ошибка клонирования"; exit 1; }
     cd $NODE_DIR || exit
+    
+    fix_docker_compose
     
     echo "Сборка ноды..."
     docker-compose up -d || { echo "Ошибка запуска Docker Compose"; exit 1; }

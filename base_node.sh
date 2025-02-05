@@ -63,7 +63,7 @@ update_rpc_settings() {
 view_logs() {
     echo "Открытие логов ноды..."
     cd $NODE_DIR || exit
-    docker-compose logs -f
+    docker-compose logs --tail=100 -f
 }
 
 sync_node() {
